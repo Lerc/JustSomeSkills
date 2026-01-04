@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>codegen-images Sampler</title>
+<style>
+* { box-sizing: border-box; }
+body { font: 14px system-ui, -apple-system, sans-serif; margin: 0; padding: 16px; background: #f8f8f8; color: #333; }
+h1 { font-size: 1.5em; margin: 0 0 4px; }
+.subtitle { color: #666; margin-bottom: 16px; }
+.controls { background: #fff; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.controls label { font-weight: 500; }
+.size-buttons { display: flex; gap: 4px; }
+.size-btn { padding: 6px 12px; border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+.size-btn:hover { border-color: #888; background: #f0f0f0; }
+.size-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+.section { margin-bottom: 24px; background: #fff; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.section h2 { font-size: 1.1em; border-bottom: 1px solid #eee; padding-bottom: 8px; margin: 0 0 12px; }
+.grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.icon { display: flex; flex-direction: column; align-items: center; padding: 8px; background: #fafafa; border-radius: 6px; transition: background 0.15s; }
+.icon:hover { background: #f0f0f0; }
+.icon canvas { border: 1px solid #ddd; border-radius: 4px; background: #fff; }
+.icon span { font-size: 10px; color: #666; margin-top: 4px; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.scenes { display: flex; flex-wrap: wrap; gap: 16px; justify-content: flex-start; }
+.scene { display: flex; flex-direction: column; align-items: center; padding: 12px; background: #fafafa; border-radius: 6px; }
+.scene canvas { border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.scene span { font-size: 12px; color: #555; margin-top: 8px; font-weight: 500; }
+.loading { color: #888; font-size: 12px; padding: 20px; }
+.stats { font-size: 12px; color: #888; margin-left: auto; }
+</style>
+</head>
+<body>
+
+<h1>codegen-images Sampler</h1>
+<p class="subtitle">Procedural icons and test images. Click a size to regenerate all icons.</p>
+
+<div class="controls">
+  <label>Icon Size:</label>
+  <div class="size-buttons" id="sizeButtons"></div>
+  <div class="stats" id="stats"></div>
+</div>
+
+<div id="app"></div>
+
+<script>
+"use strict";
+
+// simpleImage for origin-centered paths
+function simpleImage(p="M-22 -22 h44 v44 h-44 Z",w=64,h=w,o={}){let{background:b="#0000",stroke:s="#000f",fill:f="#fffa",thickness:t=w/32,transform:m=[1,0,0,1,0,0],scale:c=1,angle:a=0}=o;const C=new OffscreenCanvas(w,h),X=C.getContext("2d");let P=new Path2D(p);m instanceof DOMMatrix||(m=new DOMMatrix(m));m.translateSelf(w/2,h/2);m.rotateSelf(a);m.scaleSelf(c,c);let T=new Path2D;T.addPath(P,m);P=T;X.fillStyle=b;X.fillRect(0,0,w,h);X.fillStyle=f;X.strokeStyle=s;X.lineWidth=t;X.stroke(P);X.fill(P);return C}
+
+// makeTestImage raytracer
+function makeTestImage(W=256,H=W,S,C,L,P=(([x,,y])=>8*x&1^8*y&1)){let I={width:W,height:H,data:new Uint8ClampedArray(W*H*4)},D=I.data,M=Math,A=M.abs,U=M.max,m=e=>U(0,M.min(1,e)),O=a=>Array.from(a[0],b=>b.charCodeAt()/25-3),p=e=>(t,l)=>t.map((t,a)=>e(t,l[a])),i=(e,t)=>e+t,u=p(i),R=p((e,t)=>e-t),o=p((e,t)=>e*t),c=(e,t)=>e.map(e=>e*t),b=(e,t)=>o(e,t).reduce(i),g=e=>c(e,1/(M.hypot(...e)||1)),h=([e,t,l])=>[t,l,e],d=(e,t)=>R(e,c(t,2*b(e,t))),w=g(R(L||O`KU5`,C||=O`KY~`)),x=(e,t)=>h(R(o(e,h(t)),o(h(e),t))),y=g(x(w,O`KdK`)),G=g(x(y,w)),V=g(O`?bQ`),j=e=>{let t=m(.5*(1-b(e,V)));return[m(1-2*t*t),m(1-2*t),m(1-t/2)]},v=(e,m)=>{let p,s,t=1e9,k=-1,n=O`KdK`;if(A(m[1])>1e-6){let a=-e[1]/m[1];a>1e-4&&(t=a,k=0,p=u(e,c(m,a)))}for(let[r,i,o,h,d,...B]of S){let q=R(e,B),w=b(q,m),x=w*w-(b(q,q)-r*r);if(x>0){let l=M.sqrt(x),b=-w-l;b<1e-4&&(b=-w+l),b>1e-4&&b<t&&(t=b,k=1,p=u(e,c(m,b)),n=g(R(p,B)),s={c:[i,o,h],f:d})}}return k<0?0:{t,k,p,n,s}},z=(e,t)=>{let a=O`KKK`,r=O`ddd`;for(let _ of r){let Q=v(e,t);if(!Q){let e=j(t);return u(a,o(r,e))}let i,h,Z=Q.p,q=Q.n;if(0==Q.k){i=P(Z)?O`^_a`:O`MNO`,h=.1+.38*m(1-A(t[1]))}else i=Q.s.c,h=Q.s.f;let x=v(u(Z,c(q,1e-4)),V)?.t<20?.18:1,y=(x?1:0)*U(0,b(q,g(R(V,t))))**(Q.k?120:70),G=u(c(i,x*(.1+.9*U(0,b(q,V)))*(.65+.35*q[1])),c(O`ddd`,y*(Q.k?.55:.35)+.18*U(0,1+b(t,q))**2));if(a=u(a,o(r,G)),h<.001)break;r=c(r,h),e=u(Z,c(q,1e-4)),t=g(d(t,q))}return a};S||=[O`UdPN^9U=`,O`SM]d\\QS.`,O`WbbdbbWD`,O`Pd\`NXHPM`];for(let l=0;l<H;l++){let a=.4*(1-2*(l+.5)/H);for(let f=0;f<W;f++){let n=z(C,g(u(u(c(y,.4*(2*(f+.5)/W-1)*(W/H)),c(G,a)),w))).map((e=>(e/(1+e))**(1/2.2)));n=(e=>n.map((t=>m(1.6875*t-.4375*e-.125))))(b(n,[.2126,.7152,.0722]));let p=(f+.5)/W-.5,i=(l+.5)/H-.5,k=m(1-.85*(p*p+i*i));n=c(n,k);let o=4*(l*W+f);D.set(c(n,255),o),D[o+3]=255}}return I}
+
+// Path decoder (197 bytes) - case-aware: uppercase=0.1 precision, lowercase=0.01 precision
+function Q([e]){let c,t,n,d="",l=0,o=c=>e.charCodeAt(l++)-33;for(;l<e.length;d+=t<20?(c=1&t?100:10,"MmLlHhVvCcSsQqTtAaZz"[t]):t<71?t-45+" ":71==t?(n=o(),e.slice(l,l+=n)):(94*(t-72)+o()-1033)/c+" ")t=o();return d}
+// Encoded paths - generated from common-paths.md
+// To regenerate: node scripts/path-codec.js --encode-all
+const PATHS = {
+  UI: {
+    ARROW_RIGHT: Q`!>:#bN>b3`,
+    ARROW_LEFT: Q`!^:#:N^b3`,
+    ARROW_UP: Q`!:^#N:b^3`,
+    ARROW_DOWN: Q`!:>#Nbb>3`,
+    CHEVRON_RIGHT: Q`!B:#ZN"NN#Bb`,
+    CHEVRON_LEFT: Q`!Z:#BN"NN#Zb`,
+    CHEVRON_UP: Q`!:Z#NB"NN#bZ`,
+    CHEVRON_DOWN: Q`!:B#NZ"NN#bB`,
+    CLOSE: Q`!::#bb!b:#:b`,
+    CHECK: Q`!8P#H\`"NN#d<`,
+    PLUS: Q`!N8#Nd!8N#dN`,
+    MINUS: Q`!8N#dN`,
+    HAMBURGER: Q`!8>#d>!8N#dN!8^#d^`,
+    KEBAB: Q`!N8#N<"NN!NL#NP"NN!N\`#Nd`,
+    DOTS_H: Q`!8N#<N"NN!LN#PN"NN!\`N#dN`,
+    PLAY: Q`!>8#bN>d3`,
+    PAUSE: Q`!<8#H8Hd<d3!T8#\`8\`dTd3`,
+    STOP: Q`!::#b:bb:b3`,
+    SKIP_FWD: Q`!8:#PN8b3!P:#dNPb3`,
+    SKIP_BACK: Q`!d:#LNdb3!L:#8NLb3`,
+    SEARCH: Q`!J81\`\`NONJ\\\`\`NONJ8!XX#ff`,
+    REFRESH: Q`!N61ffNOO6N1ffNONN6#I6!O=#I6#OpX#I6`,
+    HOME: Q`!6L#N8fLfdTdTTHTHd6d3`,
+    GEAR: Q`!L6#P6R<X>^:a=]D_JfLfP\`R^Xb^_aX]R_PfLfJ\`D^>b;_?X=R6P6L<J>D:>=;D?J=3!NF1VVNONNVVVNONNF`,
+    STAR: Q`!N6#THfHXT^fN\\>fDT6HHH3`,
+    HEART: Q`!Nb#:N1ZZNNON@ZZNNObN3`,
+    PENCIL: Q`!Z6#fBFb6f:V3!V:#bF`,
+    TRASH: Q`!B>#Z>!F>#F:V:V>!>B#^BZfBf3`,
+    COPY: Q`!@:#X:XZ@Z3!DZ#Db\\b\\BXB`
+  },
+  ELECTRONICS: {
+    AND_GATE: Q`!:>#J>1^^NNOJ^#:^3!bN#ZN`,
+    OR_GATE: Q`!:>-F>ZN-F^:^-FN:>!ZN#bN`,
+    NOT_GATE: Q`!:>#:^#VN3!VN1RRNNO^N1RRNNOVN!^N#bN`,
+    NAND_GATE: Q`!:>#J>1^^NNOJ^#:^3!ZN1RRNNObN1RRNNOZN`,
+    NOR_GATE: Q`!:>-F>ZN-F^:^-FN:>!ZN1RRNNObN1RRNNOZN`,
+    XOR_GATE: Q`!:>-F>XN-F^:^-FN:>!6>-BN6^-BN6>!XN#bN`,
+    BUFFER: Q`!:>#:^ZN3!ZN#bN`,
+    RESISTOR: Q`!N6#N>"NN!N>#FB"NN!FB#VJ"NN!VJ#FR"NN!FR#VZ"NN!VZ#N^"NN!N^#Nf`,
+    RESISTOR_IEC: Q`!N6#NB"NN!FB#VB"NN!VB#VZ"NN!VZ#FZ"NN!FZ#FB"NN!NZ#Nf`,
+    CAPACITOR: Q`!N6#NF!>F#^F!>V#^V!NV#Nf`,
+    CAPACITOR_POL: Q`!N6#NJ!>J#^J!>R-NJ^R-NJ>R"NN!NN#Nf!X:#\`:"NN!\\6#\\>`,
+    INDUCTOR: Q`!N6#N>"NN!N>1TTNNONJ1TTNNNN>"NN!NJ1TTNNONV1TTNNNNJ"NN!NV1TTNNONb1TTNNNNV"NN!Nb#Nf`,
+    DIODE: Q`!fN#ZN"NB'Z!ZN#BB'Z3!BN#6N`,
+    LED: Q`!J:#P8!H@#P8!V<#UB!P8#O>!P>#V<!OD#V<!fN%Z!ZB'Z!ZN#BB'Z3!BN%6`,
+    ZENER: Q`!fN#ZN"T^$HJ!T>$TR"NN'Z!ZN#BB'Z3!BN#6N`,
+    NMOS: Q`!BB'Z!UpD(d"NN%J"NJ(V"NR'R"NR(V"FJ%oz!UwZ'N!UN%J"NZ#OV(V3!UZ%O!Je1OONNNT71OONNNJe1OONNOT71OONNOJe`,
+    PMOS: Q`!BB'Z!UpD(d"NN%J"NJ(V"NR'R"NR(V"FJ%oz!UwZ'N!UN%J"YZ#OV(V3!OZ%J!Je1OONNNT71OONNNJe1OONNOT71OONNOJe`,
+    NPN: Q`!H^#LV#R^3!BV#JZ!R^#Zb!Z:#BF"Nh$32 '6!q"N&^`,
+    PNP: Q`!Pb$RF%J3!BV$VR"VR$VR!Z:#BF"Nh$32 '6!q"N&^`,
+    GND: Q`!N6#NJ!>J#^J!DR#XR!JZ#RZ`,
+    VCC: Q`!Nf#NB!BR#ZR!NB#HJ"NN!NB#TJ"NN`,
+    POWER: Q`!N6#NF!BF#ZF`,
+    JACK: Q`!N>1^^NNON^1^^NNON>!NH#NT!HN#TN`,
+    TERMINAL: Q`!N6#NF1VVNNONV1VVNNONF`
+  },
+  SHAPES: {
+    TRIANGLE: Q`!N6#f\`6\`3`,
+    SQUARE: Q`!88#d8dd8d3`,
+    DIAMOND: Q`!N6#fNNf6N3`,
+    PENTAGON: Q`!N6#fJ^d>d6J3`,
+    HEXAGON: Q`!A:#6N#Ab%[#fN#[:3`,
+    OCTAGON: Q`!F6#V6fFfVVfFf6V6F3`,
+    CIRCLE: Q`!N6)\\6f@fNf\\\\fNf@f6\\6N6@@6N63`,
+    RING: Q`!N6)\\6f@fNf\\\\fNf@f6\\6N6@@6N63!NB)FBBHBNBVHZNZVZZTZNZFTBNB3`,
+    CROSS: Q`!N6#Nf!6N#fN`,
+    X: Q`!::#bb!b:#:b`,
+    CROSSHAIR: Q`!Nq"#N>!N^#Nv|!q"N#>N!^N#v|N!NN1RRNONNN`
+  },
+  MISC: {
+    HOOK: Q`!F6#FR-FbVb-FbFR"NN!Vb-bbbV-bbVb"NN!bV#bR`,
+    WARNING: Q`!N6#fb6b3!NF#NT!NZ#N\\`,
+    INFO: Q`!N61ffNONN6!NB#ND!NJ#N^`,
+    BRACKET_L: Q`!V6#F6"NN#Ff"NN#Vf`,
+    BRACKET_R: Q`!F6#V6"NN#Vf"NN#Ff`,
+    BRACE_L: Q`!V6-N6NB"NN#NJ"NN-NNFN"NN-NNNR"NN#NZ"NN-NfVf`,
+    CURSOR: Q`!:6#:^FVNfVbNR^R3`,
+    HAND: Q`!A[.HHGA.QFVV&O$M:*NFUDTY*M7Sh%-33 TJ$tRT)NpXRpDT:(\\$tRJ)TpvXq"Y7*OWN\`Nd$OD*NBTISX#]Y-Ww2A[`
+  },
+};
+
+const SCENES = {
+  "Default": { 
+    spheres: null
+  },
+  "RGB": { 
+    spheres: [[0.55,1,0.15,0.15,0.25,-1.1,0.55,0],[0.55,0.15,1,0.15,0.25,0,0.55,0],[0.55,0.15,0.15,1,0.25,1.1,0.55,0]],
+    camera: [0, 1.4, 6],
+    lookAt: [0, 0.55, -1]
+  },
+  "Mirror": { 
+    spheres: [[1.2,0.98,0.98,1,0.95,0,1.2,0]],
+    camera: [0, 2, 7],
+    lookAt: [0, 1.2, 0]
+  },
+  "Metallic": { 
+    spheres: [[0.7,0.9,0.8,0.3,0.7,-0.8,0.7,0],[0.7,0.8,0.8,0.85,0.8,0.8,0.7,0]],
+    camera: [0, 1.4, 6],
+    lookAt: [0, 0.7, 0]
+  },
+  "Orange": { 
+    spheres: [[0.9,0.95,0.5,0.15,0.35,0,0.9,0]],
+    camera: [0, 1.8, 6.5],
+    lookAt: [0, 0.9, 0]
+  },
+};
+
+// Rendering options - all paths use the same stroke and fill
+function getOpts(name, size) {
+  const baseThickness = size / 32;
+  return { fill: "#e8e8ff", stroke: "#333", thickness: Math.max(1, baseThickness) };
+}
+
+// State
+const SIZES = [16, 32, 48, 64, 96, 128];
+let currentSize = 64;
+let iconElements = [];
+let sceneElements = [];
+
+// Build size buttons
+const sizeButtonsDiv = document.getElementById('sizeButtons');
+SIZES.forEach(size => {
+  const btn = document.createElement('button');
+  btn.className = 'size-btn' + (size === currentSize ? ' active' : '');
+  btn.textContent = size + '×' + size;
+  btn.onclick = () => setSize(size);
+  sizeButtonsDiv.appendChild(btn);
+});
+
+function setSize(size) {
+  currentSize = size;
+  // Update button states
+  document.querySelectorAll('.size-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', SIZES[i] === size);
+  });
+  // Regenerate all icons
+  renderAllIcons();
+}
+
+function renderIcon(canvas, path, name, size) {
+  const scale = size / 64;
+  const opts = { ...getOpts(name, size), scale };
+  canvas.width = size;
+  canvas.height = size;
+  const offscreen = simpleImage(path, size, size, opts);
+  canvas.getContext('2d').drawImage(offscreen, 0, 0);
+}
+
+function renderScene(canvas, sceneConfig, size) {
+  canvas.width = size;
+  canvas.height = size;
+  const img = makeTestImage(size, size, sceneConfig.spheres, sceneConfig.camera, sceneConfig.lookAt);
+  const ctx = canvas.getContext('2d');
+  const imageData = ctx.createImageData(size, size);
+  imageData.data.set(img.data);
+  ctx.putImageData(imageData, 0, 0);
+}
+
+function renderAllIcons() {
+  const start = performance.now();
+  iconElements.forEach(({ canvas, path, name }) => {
+    renderIcon(canvas, path, name, currentSize);
+  });
+  const elapsed = performance.now() - start;
+  const count = iconElements.length;
+  document.getElementById('stats').textContent = `${count} icons rendered in ${elapsed.toFixed(1)}ms`;
+}
+
+function createIcon(name, path) {
+  const div = document.createElement('div');
+  div.className = 'icon';
+  div.title = name;
+  
+  const canvas = document.createElement('canvas');
+  iconElements.push({ canvas, path, name });
+  
+  const span = document.createElement('span');
+  span.textContent = name;
+  
+  div.appendChild(canvas);
+  div.appendChild(span);
+  return div;
+}
+
+function createScene(name, scene) {
+  const div = document.createElement('div');
+  div.className = 'scene';
+  
+  const canvas = document.createElement('canvas');
+  sceneElements.push({ canvas, scene, name });
+  
+  const span = document.createElement('span');
+  span.textContent = name;
+  
+  div.appendChild(canvas);
+  div.appendChild(span);
+  
+  // Render scene at fixed size (not affected by icon size)
+  setTimeout(() => renderScene(canvas, scene, 160), 10);
+  
+  return div;
+}
+
+function createSection(title, className = 'grid') {
+  const section = document.createElement('div');
+  section.className = 'section';
+  
+  const h2 = document.createElement('h2');
+  h2.textContent = title;
+  
+  const content = document.createElement('div');
+  content.className = className;
+  
+  section.appendChild(h2);
+  section.appendChild(content);
+  return { section, content };
+}
+
+// Build UI
+const app = document.getElementById('app');
+
+const sections = [
+  ['UI Icons', PATHS.UI],
+  ['Electronics Symbols', PATHS.ELECTRONICS],
+  ['Geometric Shapes', PATHS.SHAPES],
+  ['Miscellaneous', PATHS.MISC],
+];
+
+sections.forEach(([title, paths]) => {
+  const { section, content } = createSection(title);
+  Object.entries(paths).forEach(([name, path]) => {
+    content.appendChild(createIcon(name, path));
+  });
+  app.appendChild(section);
+});
+
+// Scenes section
+const { section: scenesSection, content: scenesContent } = createSection('Raytraced Test Scenes', 'scenes');
+Object.entries(SCENES).forEach(([name, scene]) => {
+  scenesContent.appendChild(createScene(name, scene));
+});
+app.appendChild(scenesSection);
+
+// Initial render
+renderAllIcons();
+</script>
+</body>
+</html>
