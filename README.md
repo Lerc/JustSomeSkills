@@ -1,8 +1,7 @@
 # JustSomeSkills
-Skills For Claude.
+Just some skills For Claude,  made as needed, freely shared.
 
-
-#codegen-images
+## codegen-images
 
 codegen-images generates images in javascript for situations where you want some imagery, but cannot fetch media files.  It can provide simple user interface elements from SVG d path strings. 
 
@@ -30,7 +29,7 @@ GEAR: Q`!L6#P6R<X>^:a=]D_JfLfP\`R^Xb^_aX]R_PfLfJ\`D^>b;_?X=R6P6L<J>D:>=;D?J=3!NF
 
 
 
-#svd-interpreter
+## svd-interpreter
 This is for reading System View Description files.
 It includes a compressed svd file describing the hardware of the RP2350 chip
 
