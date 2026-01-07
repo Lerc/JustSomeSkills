@@ -56,12 +56,23 @@ mkdir -p "$OUTPUT_DIR"
 # Parse the JSON and extract files
 echo "📝 Extracting source files..."
 
-# Use Python to parse JSON and decode base64
+# Use Python to parse JSON and decode base64 (with optional LZMA decompression)
 python3 << PYTHON_SCRIPT
 import json
 import base64
+import lzma
 import os
 import sys
+
+def decode_content(encoded_content):
+    """Decode base64 content, trying LZMA decompression first for backwards compatibility."""
+    decoded_base64 = base64.b64decode(encoded_content)
+    try:
+        # Try LZMA decompression (new format)
+        return lzma.decompress(decoded_base64)
+    except lzma.LZMAError:
+        # Not LZMA compressed, return raw data (backwards compatibility)
+        return decoded_base64
 
 try:
     source_map = json.loads('''$SOURCE_MAP''')
@@ -74,8 +85,8 @@ try:
         # Create parent directories if needed
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
-        # Decode content
-        decoded_content = base64.b64decode(encoded_content)
+        # Decode content (handles both LZMA-compressed and raw base64)
+        decoded_content = decode_content(encoded_content)
         
         # Write as binary to handle both text and image files
         with open(output_path, 'wb') as f:
