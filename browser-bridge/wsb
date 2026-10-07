@@ -1,0 +1,408 @@
+#!/usr/bin/env python3
+"""
+wsb — browser-bridge CLI
+
+Usage:
+  wsb status                             list open connections (app/version/url)
+  wsb wait [--app A] [--version V]       block until a matching page connects
+  wsb run <file.js> [--wait]             run a JS test file in the page
+  wsb run --code '<js>' [--wait]         run inline JS statements
+  wsb eval '<expression>'                evaluate a JS expression, print result
+  wsb log <run_id>                       print output collected for a run
+  wsb console                            print the page's console/error buffer
+  wsb reload [--wait]                    reload the page ([--wait]: until it reconnects)
+  wsb ensure                             start the server (detached) if not running
+  wsb stop                               shut down the running server
+  wsb serve                              start the server (foreground)
+
+Target selection (run/eval/console/reload):
+  --connection N    exact connection id
+  --app NAME        most recent connection whose hello reported this app
+  --version KEY     staleness guard: fail if the page reports a different version
+  (default: most recent connection)
+
+Common flags:
+  --timeout SECS    wait budget for --wait / eval / wait (defaults: run 30, others 15)
+
+Exit codes for `run --wait` / `eval`: 0 ok, 1 run reported an error, 2 timed out.
+"""
+
+import argparse
+import json
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+
+MGMT_HOST = "localhost"
+MGMT_PORT = int(os.environ.get("WSB_MGMT_PORT", "8788"))
+
+SKILL_DIR = os.path.dirname(os.path.abspath(__file__))
+
+_TS_RE = re.compile(r"^\[[0-9T:.\-]+\] ")
+
+
+def _is_mgmt_error(result: dict) -> bool:
+    # Run/console snapshots carry a "lines" key and report run failures via
+    # _print_run_result; a bare {"error": ...} is a management-level failure.
+    return "error" in result and "lines" not in result
+
+
+def _die(msg: str, code: int = 1):
+    print(f"error: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def _send(payload: dict, timeout: float = 10.0) -> dict:
+    try:
+        with socket.create_connection((MGMT_HOST, MGMT_PORT), timeout=timeout) as sock:
+            sock.sendall((json.dumps(payload) + "\n").encode("utf-8"))
+            buf = b""
+            while b"\n" not in buf:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+            return json.loads(buf.decode("utf-8").strip())
+    except ConnectionRefusedError:
+        _die("server is not running\n"
+             f"       start it with:  {SKILL_DIR}/wsb ensure")
+    except socket.timeout:
+        _die("server did not respond in time")
+    except json.JSONDecodeError:
+        _die("server sent an unparseable response")
+
+
+def _send_opt(payload: dict, timeout: float = 5.0):
+    """Like _send, but returns None if the server isn't reachable."""
+    try:
+        with socket.create_connection((MGMT_HOST, MGMT_PORT), timeout=timeout) as sock:
+            sock.sendall((json.dumps(payload) + "\n").encode("utf-8"))
+            buf = b""
+            while b"\n" not in buf:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+            return json.loads(buf.decode("utf-8").strip())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _local_build() -> int:
+    with open(os.path.join(SKILL_DIR, "server.py"), "r", encoding="utf-8") as f:
+        m = re.search(r"^BUILD\s*=\s*(\d+)", f.read(), re.M)
+    return int(m.group(1)) if m else 0
+
+
+def _mgmt_timeout(wait_budget) -> float:
+    # Give the management socket headroom beyond the server-side wait.
+    return float(wait_budget) + 10.0
+
+
+def _server_python() -> str:
+    requested = os.environ.get("WSB_PYTHON", sys.executable)
+    executable = requested if os.path.isabs(requested) else shutil.which(requested)
+    if not executable:
+        _die(f"Python interpreter not found: {requested}")
+    check = subprocess.run(
+        [executable, "-c", "import websockets"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if check.returncode:
+        _die(
+            f"{executable} cannot import the 'websockets' package\n"
+            "       install it in that environment or set WSB_PYTHON to "
+            "a compatible Python interpreter"
+        )
+    return executable
+
+
+def _selectors(args, payload: dict):
+    if args.connection is not None:
+        payload["connection"] = args.connection
+    if args.app is not None:
+        payload["app"] = args.app
+    if getattr(args, "version", None) is not None:
+        payload["version"] = args.version
+    return payload
+
+
+def _fmt_conn(c: dict, mark: str = "") -> str:
+    app = c["app"] if c["app"] is not None else "(no hello)"
+    ver = c["version"] or "-"
+    href = c["href"] or "-"
+    return f"  [{c['connection']}] app={app}  version={ver}  {href}  (age {c['age']}s){mark}"
+
+
+# ── Commands ──────────────────────────────────────────────────────────────────
+
+def cmd_status(args):
+    result = _send({"cmd": "status"})
+    if "error" in result:
+        _die(result["error"])
+    conns = result["connections"]
+    if not conns:
+        print("0 connections open")
+        return
+    print(f"{len(conns)} connection(s) open:")
+    for i, c in enumerate(conns):
+        print(_fmt_conn(c, "  ← most recent" if i == len(conns) - 1 else ""))
+
+
+def cmd_wait(args):
+    payload = {"cmd": "wait", "timeout": args.timeout}
+    if args.app is not None:
+        payload["app"] = args.app
+    if args.version is not None:
+        payload["version"] = args.version
+    result = _send(payload, timeout=_mgmt_timeout(args.timeout))
+    if "error" in result:
+        _die(result["error"], code=2)
+    print(_fmt_conn(result).strip())
+
+
+def _print_run_result(result: dict, strip_ts: bool = False) -> int:
+    for line in result["lines"]:
+        print(_TS_RE.sub("", line) if strip_ts else line)
+    sys.stdout.flush()
+    if not result["done"]:
+        print(f"note: run {result['run_id']} timed out waiting; it may still be "
+              f"executing — check later with:  {SKILL_DIR}/wsb log {result['run_id']}",
+              file=sys.stderr)
+        return 2
+    if not result["ok"]:
+        print(f"run {result['run_id']} failed: {result.get('error') or 'unknown error'}",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_run(args):
+    if args.code is not None:
+        code = args.code
+        name = args.name or "inline"
+    elif args.file:
+        try:
+            with open(args.file, "r", encoding="utf-8") as f:
+                code = f.read()
+        except OSError as e:
+            _die(f"cannot read {args.file}: {e}")
+        name = args.name or os.path.splitext(os.path.basename(args.file))[0]
+    else:
+        _die("run requires a test file or --code")
+
+    payload = _selectors(args, {
+        "cmd": "run", "code": code, "name": name,
+        "wait": args.wait, "timeout": args.timeout,
+    })
+    result = _send(payload, timeout=_mgmt_timeout(args.timeout))
+    if _is_mgmt_error(result):
+        _die(result["error"])
+
+    if not args.wait:
+        # stdout stays script-friendly: just the run id
+        print(result["run_id"])
+        print(f"dispatched '{name}' to connection {result['connection']}; "
+              f"fetch output with:  {SKILL_DIR}/wsb log {result['run_id']}",
+              file=sys.stderr)
+        return
+
+    sys.exit(_print_run_result(result))
+
+
+def cmd_eval(args):
+    code = (
+        "const __r = await (async () => ( " + args.expression + " ))();\n"
+        "wslog(__r === undefined ? 'undefined'\n"
+        "      : typeof __r === 'string' ? __r\n"
+        "      : JSON.stringify(__r));\n"
+    )
+    payload = _selectors(args, {
+        "cmd": "run", "code": code, "name": "eval",
+        "wait": True, "timeout": args.timeout,
+    })
+    result = _send(payload, timeout=_mgmt_timeout(args.timeout))
+    if _is_mgmt_error(result):
+        _die(result["error"])
+    sys.exit(_print_run_result(result, strip_ts=True))
+
+
+def cmd_log(args):
+    result = _send({"cmd": "log", "run": args.run_id})
+    if _is_mgmt_error(result):
+        _die(result["error"])
+    state = ("running" if not result["done"]
+             else "ok" if result["ok"]
+             else f"failed: {result.get('error') or 'unknown error'}")
+    print(f"# run {result['run_id']} '{result['name']}' "
+          f"on connection {result['connection']} — {state}", file=sys.stderr)
+    for line in result["lines"]:
+        print(line)
+    if result["done"] and not result["ok"]:
+        sys.exit(1)
+
+
+def cmd_console(args):
+    payload = _selectors(args, {"cmd": "console"})
+    result = _send(payload)
+    if _is_mgmt_error(result):
+        _die(result["error"])
+    if not result["lines"]:
+        print(f"(console buffer for connection {result['connection']} is empty)",
+              file=sys.stderr)
+    for line in result["lines"]:
+        print(line)
+
+
+def cmd_reload(args):
+    payload = _selectors(args, {"cmd": "reload",
+                                "wait": args.wait, "timeout": args.timeout})
+    result = _send(payload, timeout=_mgmt_timeout(args.timeout))
+    if "error" in result:
+        _die(result["error"], code=2 if "no matching hello" in result["error"] else 1)
+    if args.wait:
+        print("reloaded; page reconnected as:")
+        print(_fmt_conn(result))
+    else:
+        print(f"reload sent to connection {result['connection']}")
+        print("(the connection id will change when the page reconnects)")
+
+
+def cmd_serve(args):
+    server_python = _server_python()
+    os.execv(server_python, [server_python, os.path.join(SKILL_DIR, "server.py")])
+
+
+def cmd_ensure(args):
+    expected = _local_build()
+
+    status = _send_opt({"cmd": "status"})
+    if status is not None:
+        running = status.get("build")
+        if running == expected:
+            print(f"server already running (build {expected}, "
+                  f"{len(status.get('connections', []))} connection(s))")
+            return
+        print(f"server running build {running}, skill has build {expected} — "
+              f"restarting", file=sys.stderr)
+        _send_opt({"cmd": "shutdown"})
+        for _ in range(50):
+            if _send_opt({"cmd": "status"}) is None:
+                break
+            time.sleep(0.1)
+        else:
+            _die("old server did not shut down; stop it manually")
+
+    server_python = _server_python()
+    log_path = os.environ.get(
+        "WSB_LOG_PATH",
+        os.path.join(tempfile.gettempdir(), "browser-bridge-server.log"),
+    )
+    with open(log_path, "ab") as log:
+        subprocess.Popen(
+            [server_python, os.path.join(SKILL_DIR, "server.py")],
+            stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+            start_new_session=True, cwd=SKILL_DIR)
+
+    for _ in range(50):
+        time.sleep(0.1)
+        status = _send_opt({"cmd": "status"})
+        if status is not None:
+            print(f"server started (build {status.get('build')}, "
+                  f"mgmt :{MGMT_PORT})")
+            return
+    _die(f"server failed to start — check {log_path}")
+
+
+def cmd_stop(args):
+    result = _send_opt({"cmd": "shutdown"})
+    if result is None:
+        print("server is not running")
+    elif result.get("stopping"):
+        print("server stopped")
+    else:
+        _die(result.get("error", f"unexpected reply: {result}"))
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def _add_selectors(p, version: bool = True):
+    p.add_argument("--connection", type=int, help="exact connection id")
+    p.add_argument("--app", help="most recent connection for this app name")
+    if version:
+        p.add_argument("--version",
+                       help="fail if the page reports a different version key")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="wsb", description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("status", help="list open connections")
+
+    p = sub.add_parser("wait", help="block until a matching page connects")
+    p.add_argument("--app")
+    p.add_argument("--version")
+    p.add_argument("--timeout", type=float, default=15)
+
+    p = sub.add_parser("run", help="run a JS file (or --code) in the page")
+    p.add_argument("file", nargs="?", help="path to a JS file")
+    p.add_argument("--code", help="inline JS statements instead of a file")
+    p.add_argument("--name", help="label for the run (default: file basename)")
+    p.add_argument("--wait", "-w", action="store_true",
+                   help="block until the run finishes; print its output")
+    p.add_argument("--timeout", type=float, default=30)
+    _add_selectors(p)
+
+    p = sub.add_parser("eval", help="evaluate a JS expression, print the result")
+    p.add_argument("expression")
+    p.add_argument("--timeout", type=float, default=15)
+    _add_selectors(p)
+
+    p = sub.add_parser("log", help="print output collected for a run")
+    p.add_argument("run_id", type=int)
+
+    p = sub.add_parser("console", help="print the page's console/error buffer")
+    _add_selectors(p)
+
+    p = sub.add_parser("reload", help="reload the page")
+    p.add_argument("--wait", "-w", action="store_true",
+                   help="block until the page reconnects; print its new identity")
+    p.add_argument("--timeout", type=float, default=15)
+    _add_selectors(p)
+
+    sub.add_parser("serve", help="start the server (foreground)")
+    sub.add_parser("ensure", help="start the server detached if not already "
+                                  "running; restart it on build mismatch")
+    sub.add_parser("stop", help="shut down the running server")
+
+    args = parser.parse_args()
+    if args.command is None:
+        print(__doc__.strip())
+        sys.exit(0)
+
+    {
+        "status":  cmd_status,
+        "wait":    cmd_wait,
+        "run":     cmd_run,
+        "eval":    cmd_eval,
+        "log":     cmd_log,
+        "console": cmd_console,
+        "reload":  cmd_reload,
+        "serve":   cmd_serve,
+        "ensure":  cmd_ensure,
+        "stop":    cmd_stop,
+    }[args.command](args)
+
+
+if __name__ == "__main__":
+    main()

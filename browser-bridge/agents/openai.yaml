@@ -1,0 +1,4 @@
+interface:
+  display_name: "Browser Bridge"
+  short_description: "Test live browser pages from the command line"
+  default_prompt: "Use $browser-bridge to test and diagnose this web app in the live browser."
