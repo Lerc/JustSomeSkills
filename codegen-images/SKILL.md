@@ -90,3 +90,6 @@ node <skill-dir>/scripts/save_png.js --path "M-16 -20 L20 0 -16 20 Z" --size 64 
 node <skill-dir>/scripts/save_png.js --list-presets      # every library path, lowercase name
 node <skill-dir>/scripts/save_png.js --help              # stroke, fill, background, scale, rotation, stdin
 ```
+
+`--scale` defaults to `size/64`, so library paths keep the same padding at any
+size.

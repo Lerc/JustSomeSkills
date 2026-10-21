@@ -23,7 +23,8 @@
  *   --stroke <color>          Stroke color (default: #000f)
  *   --background <color>      Background color (default: transparent)
  *   --thickness <n>           Stroke width (default: size/32)
- *   --scale <n>               Scale factor (default: 1)
+ *   --scale <n>               Scale factor (default: min(width, height)/64, so
+ *                             library paths keep the same padding at any size)
  *   --angle <deg>             Rotation in degrees (default: 0)
  *   --out <file>              Output filename (required)
  *   --list-presets            Show available preset paths
@@ -86,7 +87,7 @@ function parseArgs(args) {
     stroke: '#000f',
     background: '#0000',
     thickness: null,
-    scale: 1,
+    scale: null,
     angle: 0,
     out: null,
     listPresets: false,
@@ -248,7 +249,7 @@ async function main() {
     stroke: opts.stroke,
     background: opts.background,
     thickness,
-    scale: opts.scale,
+    scale: opts.scale ?? Math.min(width, height) / 64,
     angle: opts.angle,
   });
 
