@@ -1,30 +1,12 @@
 # Common SVG Paths Library
 
-> **Note:** After editing paths in this file, run `python3 scripts/update_sampler.py` to update the sampler.html preview.
+Origin-centered paths spanning about ±24, ready for `simpleImage` (see SKILL.md).
+Stroke-only shapes are already zero-area. Copy the entries you need into a
+`PATHS` object, or render them with `save_png.js --preset <lowercase_name>`.
 
-**Centered at origin (0, 0)** with content spanning roughly -24 to +24 on each axis (48px content).
-
-The `scale` parameter works intuitively since paths are centered at origin:
-```javascript
-// Default scale (1.0) fills a 64×64 canvas with 8px padding
-simpleImage(path, 64, 64, opts);
-
-// For other sizes, scale proportionally
-simpleImage(path, 48, 48, { ...opts, scale: 48/64 });
-simpleImage(path, 128, 128, { ...opts, scale: 2 });
-```
-
-## Usage
-
-```javascript
-const PATHS = { /* copy paths below */ };
-
-// Default size (64×64)
-const icon = simpleImage(PATHS.CHECK, 64, 64, { stroke: "#0a0", fill: "#0000", thickness: 4 });
-
-// Different sizes - just use scale parameter
-const small = simpleImage(PATHS.CHECK, 48, 48, { stroke: "#0a0", fill: "#0000", thickness: 3, scale: 48/64 });
-```
+Contents: UI Icons (arrows, chevrons, actions, media, menus) · Electronics
+Symbols (logic gates, passives, transistors, power) · Geometric Shapes ·
+Miscellaneous (hook, warning, brackets, cursors) · Combining Paths
 
 ## UI Icons
 

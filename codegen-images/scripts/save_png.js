@@ -35,8 +35,15 @@
  *   # Decode and render an encoded path
  *   echo "!:N\$fN!RV#bN#RF3" | node save_png.js --stdin --encoded-path --out icon.png
  * 
- * Requires: npm install @napi-rs/canvas (or canvas)
+ * Requires @napi-rs/canvas (or canvas) resolvable from this script; see SKILL.md.
  */
+
+// --help prints the usage comment above (before loading canvas, so it works without it)
+if (require.main === module && process.argv.slice(2).some(a => a === '--help' || a === '-h')) {
+  const src = require('fs').readFileSync(__filename, 'utf8');
+  console.log(src.slice(src.indexOf('/**') + 3, src.indexOf('*/')).replace(/^ \* ?/gm, '').trim());
+  process.exit(0);
+}
 
 // Use @napi-rs/canvas (prebuilt binaries) or fallback to 'canvas' package
 let createCanvas, Path2D;
@@ -58,49 +65,12 @@ function decodePath(e) {
   return d;
 }
 
-// Preset paths library (origin-centered, content spans -24 to +24)
-const PRESETS = {
-  // UI
-  arrow_right: "M-16 -20 L20 0 -16 20 Z",
-  arrow_left: "M16 -20 L-20 0 16 20 Z",
-  arrow_up: "M-20 16 L0 -20 20 16 Z",
-  arrow_down: "M-20 -16 L0 20 20 -16 Z",
-  chevron_right: "M-12 -20 L12 0 -12 20",
-  chevron_left: "M12 -20 L-12 0 12 20",
-  close: "M-20 -20 L20 20 M20 -20 L-20 20",
-  check: "M-22 2 L-6 18 22 -18",
-  plus: "M0 -22 L0 22 M-22 0 L22 0",
-  minus: "M-22 0 L22 0",
-  hamburger: "M-22 -16 L22 -16 M-22 0 L22 0 M-22 16 L22 16",
-  play: "M-16 -22 L20 0 -16 22 Z",
-  pause: "M-18 -22 L-6 -22 -6 22 -18 22 Z M6 -22 L18 -22 18 22 6 22 Z",
-  stop: "M-20 -20 L20 -20 20 20 -20 20 Z",
-  star: "M0 -24 L6 -6 24 -6 10 6 16 24 0 14 -16 24 -10 6 -24 -6 -6 -6 Z",
-  heart: "M0 20 L-20 0 A12 12 0 0 1 0 -14 12 12 0 0 1 20 0 Z",
-  gear: "M-2 -24 L2 -24 4 -18 10 -16 16 -20 19 -17 15 -10 17 -4 24 -2 24 2 18 4 16 10 20 16 17 19 10 15 4 17 2 24 -2 24 -4 18 -10 16 -16 20 -19 17 -15 10 -17 4 -24 2 -24 -2 -18 -4 -16 -10 -20 -16 -17 -19 -10 -15 -4 -17 Z M0 -8 A8 8 0 1 0 0 8 8 8 0 1 0 0 -8",
-  
-  // Electronics (updated to match common-paths.md)
-  and_gate: "M-20 -16 L-4 -16 A16 16 0 0 1 -4 16 L-20 16 Z M20 0 L12 0",
-  or_gate: "M-20 -16 Q-8 -16 12 0 Q-8 16 -20 16 Q-8 0 -20 -16 M12 0 L20 0",
-  not_gate: "M-20 -16 L-20 16 L8 0 Z M8 0 A4 4 0 0 1 16 0 A4 4 0 0 1 8 0 M16 0 L20 0",
-  nand_gate: "M-20 -16 L-4 -16 A16 16 0 0 1 -4 16 L-20 16 Z M12 0 A4 4 0 0 1 20 0 A4 4 0 0 1 12 0",
-  resistor: "M0 -24 L0 -16 -8 -12 8 -4 -8 4 8 12 0 16 0 24",
-  capacitor: "M0 -24 L0 -8 M-16 -8 L16 -8 M-16 8 L16 8 M0 8 L0 24",
-  diode: "M24 0 L12 0 M12 -12 L12 12 M12 0 L-12 -12 L-12 12 Z M-12 0 L-24 0",
-  gnd: "M0 -24 L0 -4 M-16 -4 L16 -4 M-10 4 L10 4 M-4 12 L4 12",
-  
-  // Shapes
-  triangle: "M0 -24 L24 18 -24 18 Z",
-  square: "M-22 -22 L22 -22 22 22 -22 22 Z",
-  diamond: "M0 -24 L24 0 0 24 -24 0 Z",
-  hexagon: "M-13 -20 L-24 0 L-13 20 H13 L24 0 L13 -20 Z",
-  circle: "M0 -24 C14 -24 24 -14 24 0 24 14 14 24 0 24 -14 24 -24 14 -24 0 -24 -14 -14 -24 0 -24 Z",
-  
-  // Misc
-  hook: "M-8 -24 L-8 4 Q-8 20 8 20 20 20 20 8 L20 4",
-  warning: "M0 -24 L24 20 -24 20 Z M0 -8 L0 6 M0 12 L0 14",
-  cursor: "M-20 -24 L-20 16 -8 8 0 24 8 20 0 4 16 4 Z",
-};
+// Preset paths: every path in references/common-paths.md, by lowercase name (e.g. nand_gate)
+const PRESETS = Object.fromEntries(
+  Object.values(require('./path-codec.js').loadPathLibrary())
+    .flatMap(paths => Object.entries(paths))
+    .map(([name, d]) => [name.toLowerCase(), d])
+);
 
 function parseArgs(args) {
   const opts = {

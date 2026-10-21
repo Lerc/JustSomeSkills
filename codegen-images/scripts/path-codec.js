@@ -95,7 +95,23 @@ function decodePath(e) {
 const DECODER_MINIFIED = `function Q([e]){let c,t,n,d="",l=0,o=c=>e.charCodeAt(l++)-33;for(;l<e.length;d+=t<20?(c=1&t?100:10,"MmLlHhVvCcSsQqTtAaZz"[t]):t<71?t-45+" ":71==t?(n=o(),e.slice(l,l+=n)):(94*(t-72)+o()-1033)/c+" ")t=o();return d}`;
 
 // Export for use as module
-module.exports = { encodePath, decodePath, DECODER_MINIFIED };
+// Parse references/common-paths.md (the source of truth) into
+// { UI: { CHECK: "M...", ... }, ELECTRONICS: {...}, SHAPES: {...}, MISC: {...} }
+function loadPathLibrary() {
+  const file = require('path').join(__dirname, '..', 'references', 'common-paths.md');
+  const sections = {};
+  let current = null;
+  for (const line of require('fs').readFileSync(file, 'utf8').split('\n')) {
+    const sec = line.match(/^const (\w+) = \{\s*$/);
+    if (sec) { current = sections[sec[1]] = {}; continue; }
+    if (current && /^\};?\s*$/.test(line)) { current = null; continue; }
+    const m = current && line.match(/^\s*(\w+):\s*"([^"]+)"/);
+    if (m) current[m[1]] = m[2];
+  }
+  return sections;
+}
+
+module.exports = { encodePath, decodePath, loadPathLibrary, DECODER_MINIFIED };
 
 // CLI usage
 if (require.main === module) {
@@ -110,46 +126,19 @@ if (require.main === module) {
     console.log(`Ratio: ${(enc.length / args[1].length).toFixed(3)}`);
     console.log(`Decoded: ${decodePath(enc)}`);
   } else if (args[0] === '--encode-all') {
-    // Read paths from common-paths.md and output encoded JavaScript
-    const fs = require('fs');
-    const content = fs.readFileSync('./references/common-paths.md', 'utf8');
-    
-    // Parse sections and paths - look for actual section names
     const sections = {};
-    let currentSection = null;
-    const sectionRe = /^const (UI|ELECTRONICS|SHAPES|MISC) = \{/;
-    const pathRe = /^\s*(\w+):\s*"([^"]+)"/;
-    
-    for (const line of content.split('\n')) {
-      const secMatch = line.match(sectionRe);
-      if (secMatch) {
-        currentSection = secMatch[1];
-        sections[currentSection] = {};
-        continue;
-      }
-      // End section on closing brace
-      if (currentSection && line.match(/^\};?\s*$/)) {
-        currentSection = null;
-        continue;
-      }
-      if (currentSection) {
-        const pathMatch = line.match(pathRe);
-        if (pathMatch) {
-          const [, name, path] = pathMatch;
-          const enc = encodePath(path);
-          sections[currentSection][name] = enc;
-          
-          // Verify round-trip
-          const dec = decodePath(enc);
-          const origNorm = path.replace(/\s+/g, '');
-          const decNorm = dec.replace(/\s+/g, '');
-          if (origNorm !== decNorm) {
-            console.error(`// WARNING: ${name} decode mismatch`);
-          }
+    for (const [section, paths] of Object.entries(loadPathLibrary())) {
+      sections[section] = {};
+      for (const [name, path] of Object.entries(paths)) {
+        const enc = encodePath(path);
+        sections[section][name] = enc;
+        // Verify round-trip
+        if (decodePath(enc).replace(/\s+/g, '') !== path.replace(/\s+/g, '')) {
+          console.error(`// WARNING: ${name} decode mismatch`);
         }
       }
     }
-    
+
     // Output JavaScript
     console.log('// Path decoder (197 bytes) - case-aware: uppercase=0.1 precision, lowercase=0.01 precision');
     console.log(DECODER_MINIFIED);

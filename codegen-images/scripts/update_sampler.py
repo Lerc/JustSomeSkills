@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 
 # File paths
-SKILL_DIR = Path("/mnt/skills/user/codegen-images")
+SKILL_DIR = Path(__file__).resolve().parent.parent
 COMMON_PATHS_MD = SKILL_DIR / "references" / "common-paths.md"
 SAMPLER_HTML = SKILL_DIR / "sampler.html"
 PATH_CODEC_JS = SKILL_DIR / "scripts" / "path-codec.js"
