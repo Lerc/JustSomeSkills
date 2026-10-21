@@ -7,9 +7,19 @@ description: Interpret and analyze CMSIS SVD (System View Description) files for
 
 Parse and extract information from CMSIS SVD (System View Description) XML files that define memory-mapped peripherals for ARM Cortex-M microcontrollers.
 
+Resolve `<skill-dir>` as the directory containing this `SKILL.md`. Resolve
+every `scripts/...`, `assets/...`, and `references/...` path below against
+that directory regardless of the current working directory. Invoke scripts
+with their absolute resolved paths, for example:
+
+```bash
+<skill-dir>/scripts/device_info.py /path/to/device.svd
+```
+
 ## Available Scripts
 
-All scripts support `--json` flag for machine-readable output and automatically handle LZMA-compressed `.lzma` files.
+All scripts support the `--json` flag for machine-readable output and
+automatically handle LZMA-compressed `.lzma` files.
 
 ### device_info.py
 Display device metadata and CPU configuration.
@@ -98,11 +108,11 @@ Examples:
 
 ## Usage Workflow
 
-When user provides or references an SVD file:
+When the user provides or references an SVD file:
 
-1. If file needs to be uploaded, ask user to provide it
-   - **Note**: RP2350.svd.lzma is included in the skill (compressed, 133KB)
-   - Scripts automatically handle LZMA decompression
+1. Resolve the requested SVD file. If it is unavailable, ask the user to
+   provide it. For RP2350 queries, use the bundled
+   `assets/RP2350.svd.lzma`; do not decompress it manually.
 2. Use appropriate script based on the query:
    - Overview needed → `device_info.py` and `list_peripherals.py`
    - Specific register → `find_register.py`
@@ -112,8 +122,12 @@ When user provides or references an SVD file:
    - Memory range analysis → `find_in_range.py`
    - Decode register value → `decode_value.py`
    - Build register value → `encode_value.py`
-3. Parse script output and present in clear format
-4. Reference common_peripherals.md when additional context about standard ARM peripherals would be helpful
+3. Prefer `--json` when consuming output programmatically.
+4. Parse script output and present it in a clear format.
+5. Read [common_peripherals.md](references/common_peripherals.md) when
+   additional context about standard ARM peripherals would help.
+6. Read [rp2350-svd.md](references/rp2350-svd.md) for the bundled RP2350
+   file's provenance, license, and update procedure.
 
 ## Typical Queries
 
@@ -143,4 +157,7 @@ When user provides or references an SVD file:
 
 ## References
 
-- [common_peripherals.md](references/common_peripherals.md) - Information about standard ARM Cortex-M peripherals and common register patterns
+- [common_peripherals.md](references/common_peripherals.md) - Standard ARM
+  Cortex-M peripherals and common register patterns.
+- [rp2350-svd.md](references/rp2350-svd.md) - Bundled RP2350 SVD provenance,
+  license, and maintenance notes.

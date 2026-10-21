@@ -3,6 +3,7 @@
 Core SVD parsing utilities for extracting information from CMSIS SVD files.
 """
 
+import os
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
@@ -55,6 +56,13 @@ class SVDParser:
     
     def __init__(self, svd_path: str):
         """Initialize parser with SVD file path. Supports .lzma compressed files."""
+        # if file does not exist, try to find in the same directory with .lzma extension
+        if not os.path.exists(svd_path):
+            if svd_path.endswith('.lzma'):
+                svd_path = svd_path[:-5]  # Remove .lzma extension
+            else:
+                svd_path += '.lzma'  # Append .lzma extension
+
         # Check if file is LZMA compressed
         if svd_path.endswith('.lzma'):
             with lzma.open(svd_path, 'rt', encoding='utf-8') as f:

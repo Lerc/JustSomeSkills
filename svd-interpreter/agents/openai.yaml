@@ -1,0 +1,4 @@
+interface:
+  display_name: "SVD Interpreter"
+  short_description: "Inspect CMSIS-SVD registers and bit fields"
+  default_prompt: "Use $svd-interpreter to inspect this microcontroller register or memory address."
