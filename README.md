@@ -50,5 +50,5 @@ project/
 ```
 The bundle ends with a comment holding the compressed source files and a link back to this repo, so the bundle can be turned back into individual files. Set `VANILLA_ARTIFACT_OUTPUT_DIR` to wherever your environment picks up output files. Run `scripts/check-environment.sh` to check that an environment has what the skill needs.
 
-
-
+## terminal-images
+Lets the agent show images inline in a terminal that supports the kitty graphics protocol (Ghostty, kitty, WezTerm). Claude Code captures shell output and strips escape codes, so `termimg` writes the image straight to the terminal device of the agent's own UI. Images float over the conversation; type `/hideimg` (the companion `hideimg` skill) to hide them. When `termimg check` finds no image support, the skill stays out of the way.

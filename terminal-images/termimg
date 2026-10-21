@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Show images inline in the user's terminal with the kitty graphics protocol.
+
+Usage:
+  termimg check
+  termimg show <image> [--pos top-right|top-left|center] [--at ROW,COL]
+                       [--cols N] [--rows N] [--id N]
+  termimg clear [--id N | --all]
+
+The agent's shell output is captured, not displayed, so termimg writes the
+escape sequences straight to the terminal device of the nearest ancestor
+process that has one (the agent's own UI). Images float above the text until
+cleared; showing again with the same --id replaces the previous image.
+The first show in each agent session prints a 'tell-user:' line naming the
+/hideimg command the user can type to hide images.
+
+Environment:
+  TERMINAL_IMAGE_TTY    Terminal device to write to (skips auto-detection)
+  TERMINAL_IMAGE_FORCE  Set to 1 to skip the terminal-support check
+
+Exit status: 0 done, 1 no usable terminal, 2 bad arguments or image.
+"""
+import base64, fcntl, math, os, shutil, struct, subprocess, sys, tempfile, termios
+
+SUPPORTED = {"ghostty", "kitty", "wezterm"}
+DEFAULT_ID = 1
+
+
+def fail(msg, code=1):
+    print(f"termimg: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def find_owner():
+    """(pid, device) of the nearest ancestor attached to a terminal: the agent's UI."""
+    pid = os.getpid()
+    while pid > 1:
+        out = subprocess.run(["ps", "-o", "ppid=,tty=", "-p", str(pid)],
+                             capture_output=True, text=True).stdout.split()
+        if len(out) < 2:
+            return None, None
+        ppid, tty = out[0], out[1]
+        if tty not in ("?", "??", "-"):
+            return pid, tty if tty.startswith("/dev/") else f"/dev/{tty}"
+        pid = int(ppid)
+    return None, None
+
+
+def find_tty():
+    return os.environ.get("TERMINAL_IMAGE_TTY") or find_owner()[1]
+
+
+def first_show_this_session():
+    """True once per agent process (the terminal owner), tracked by a marker file."""
+    owner = find_owner()[0] or os.getppid()
+    marker = os.path.join(tempfile.gettempdir(), f"termimg-{os.getuid()}-{owner}.hinted")
+    if os.path.exists(marker):
+        return False
+    try:
+        open(marker, "w").close()
+    except OSError:
+        pass
+    return True
+
+
+def terminal_name():
+    env = os.environ
+    if env.get("KITTY_WINDOW_ID") or "kitty" in env.get("TERM", ""):
+        return "kitty"
+    if env.get("TERM_PROGRAM", "").lower() in SUPPORTED:
+        return env["TERM_PROGRAM"].lower()
+    if "ghostty" in env.get("TERM", ""):
+        return "ghostty"
+    return env.get("TERM_PROGRAM") or env.get("TERM") or "unknown"
+
+
+def supported():
+    return os.environ.get("TERMINAL_IMAGE_FORCE") == "1" or terminal_name() in SUPPORTED
+
+
+def winsize(fd):
+    rows, cols, xpix, ypix = struct.unpack("HHHH", fcntl.ioctl(fd, termios.TIOCGWINSZ, b"\0" * 8))
+    return rows, cols, xpix, ypix
+
+
+def wrap(seq):
+    """Wrap one escape sequence for tmux passthrough when running inside tmux."""
+    if os.environ.get("TMUX"):
+        return b"\033Ptmux;" + seq.replace(b"\033", b"\033\033") + b"\033\\"
+    return seq
+
+
+def gr(ctrl, payload=b""):
+    return wrap(b"\033_G" + ctrl.encode() + (b";" + payload if payload else b"") + b"\033\\")
+
+
+def load_png(path):
+    """PNG bytes and pixel size, converting other formats with ImageMagick if present."""
+    try:
+        data = open(path, "rb").read()
+    except OSError as e:
+        fail(str(e), 2)
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        tool = shutil.which("magick") or shutil.which("convert")
+        if not tool:
+            fail(f"{path} is not a PNG and ImageMagick is not installed to convert it", 2)
+        with tempfile.NamedTemporaryFile(suffix=".png") as tmp:
+            r = subprocess.run([tool, path + "[0]", tmp.name], capture_output=True, text=True)
+            if r.returncode:
+                fail(f"could not convert {path}: {r.stderr.strip()}", 2)
+            data = open(tmp.name, "rb").read()
+    width, height = struct.unpack(">II", data[16:24])
+    return data, width, height
+
+
+def open_tty():
+    tty = find_tty()
+    if not tty:
+        fail("no terminal device found; the agent is not running in a terminal")
+    try:
+        return tty, os.open(tty, os.O_WRONLY | os.O_NOCTTY)
+    except OSError as e:
+        fail(f"cannot write to {tty}: {e}")
+
+
+def cmd_check():
+    tty = find_tty()
+    print(f"terminal:  {terminal_name()}{'  (inside tmux: needs set -g allow-passthrough on)' if os.environ.get('TMUX') else ''}")
+    print(f"device:    {tty or 'none found'}")
+    if tty:
+        try:
+            fd = os.open(tty, os.O_WRONLY | os.O_NOCTTY)
+            rows, cols, xpix, ypix = winsize(fd)
+            os.close(fd)
+            print(f"size:      {cols}x{rows} cells, {xpix}x{ypix} px")
+        except OSError as e:
+            print(f"size:      unavailable ({e})")
+            tty = None
+    ok = bool(tty) and supported()
+    print(f"usable:    {'yes' if ok else 'no'}"
+          + ("" if supported() else "  (terminal not known to support the kitty graphics protocol; "
+             "set TERMINAL_IMAGE_FORCE=1 to try anyway)"))
+    sys.exit(0 if ok else 1)
+
+
+def parse(args, spec):
+    """Minimal --flag value parser; spec maps flag -> type (bool for switches)."""
+    opts, rest, i = {}, [], 0
+    while i < len(args):
+        a = args[i]
+        if a in spec:
+            if spec[a] is bool:
+                opts[a] = True
+            elif i + 1 < len(args):
+                try:
+                    opts[a] = spec[a](args[i + 1])
+                except ValueError:
+                    fail(f"bad value for {a}: {args[i + 1]}", 2)
+                i += 1
+            else:
+                fail(f"{a} needs a value", 2)
+        elif a.startswith("--"):
+            fail(f"unknown option {a}", 2)
+        else:
+            rest.append(a)
+        i += 1
+    return opts, rest
+
+
+def cmd_show(args):
+    opts, rest = parse(args, {"--pos": str, "--at": str, "--cols": int, "--rows": int, "--id": int})
+    if len(rest) != 1:
+        fail("usage: termimg show <image> [--pos top-right|top-left|center] [--at ROW,COL] "
+             "[--cols N] [--rows N] [--id N]", 2)
+    if not supported():
+        fail(f"terminal '{terminal_name()}' is not known to support the kitty graphics protocol "
+             "(set TERMINAL_IMAGE_FORCE=1 to try anyway)")
+    data, width, height = load_png(rest[0])
+    tty, fd = open_tty()
+    rows, cols, xpix, ypix = winsize(fd)
+    cell_w = xpix / cols if xpix else 8
+    cell_h = ypix / rows if ypix else 16
+
+    # Size in cells: requested, else native size capped at a third of the width / half the height.
+    native_c, native_r = width / cell_w, height / cell_h
+    if "--cols" in opts or "--rows" in opts:
+        c = opts.get("--cols") or native_c * opts["--rows"] / native_r
+        r = opts.get("--rows") or native_r * opts["--cols"] / native_c
+    else:
+        scale = min(1, (cols // 3) / native_c, (rows // 2) / native_r)
+        c, r = native_c * scale, native_r * scale
+    c, r = max(1, min(cols, math.ceil(c))), max(1, min(rows, math.ceil(r)))
+
+    pos = opts.get("--pos", "top-right")
+    if "--at" in opts:
+        try:
+            row, col = (int(v) for v in opts["--at"].split(","))
+        except ValueError:
+            fail("--at takes ROW,COL (1-based)", 2)
+    elif pos == "top-right":
+        row, col = 2, max(1, cols - c)
+    elif pos == "top-left":
+        row, col = 2, 1
+    elif pos == "center":
+        row, col = max(1, (rows - r) // 2 + 1), max(1, (cols - c) // 2 + 1)
+    else:
+        fail(f"unknown --pos {pos}", 2)
+
+    image_id = opts.get("--id", DEFAULT_ID)
+    payload = base64.standard_b64encode(data)
+    out = [gr(f"a=d,d=I,i={image_id},q=2"), b"\0337" + f"\033[{row};{col}H".encode()]
+    for i in range(0, len(payload), 4096):
+        more = int(i + 4096 < len(payload))
+        ctrl = (f"a=T,f=100,i={image_id},c={c},r={r},C=1,q=2,m={more}" if i == 0 else f"m={more}")
+        out.append(gr(ctrl, payload[i:i + 4096]))
+    out.append(b"\0338")
+    os.write(fd, b"".join(out))
+    os.close(fd)
+    print(f"shown {rest[0]} ({width}x{height} px) as {c}x{r} cells at row {row}, col {col} "
+          f"on {tty} (id {image_id})")
+    if first_show_this_session():
+        print("tell-user: Type /hideimg to hide images.")
+
+
+def cmd_clear(args):
+    opts, _ = parse(args, {"--id": int, "--all": bool})
+    tty, fd = open_tty()
+    if opts.get("--all"):
+        os.write(fd, gr("a=d,d=A,q=2"))
+        what = "all images"
+    else:
+        image_id = opts.get("--id", DEFAULT_ID)
+        os.write(fd, gr(f"a=d,d=I,i={image_id},q=2"))
+        what = f"image id {image_id}"
+    os.close(fd)
+    print(f"cleared {what} on {tty}")
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        sys.exit(0 if args else 2)
+    cmd, rest = args[0], args[1:]
+    if cmd == "check":
+        cmd_check()
+    elif cmd == "show":
+        cmd_show(rest)
+    elif cmd == "clear":
+        cmd_clear(rest)
+    else:
+        fail(f"unknown command {cmd} (show, clear, check)", 2)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""Remove every image the terminal-images skill (or anything else) drew with the
+kitty graphics protocol, by writing to the terminal of the agent's own UI.
+
+Honours TERMINAL_IMAGE_TTY like termimg. Exit status: 0 done, 1 no terminal.
+"""
+import os, subprocess, sys
+
+
+def find_tty():
+    if os.environ.get("TERMINAL_IMAGE_TTY"):
+        return os.environ["TERMINAL_IMAGE_TTY"]
+    pid = os.getpid()
+    while pid > 1:
+        out = subprocess.run(["ps", "-o", "ppid=,tty=", "-p", str(pid)],
+                             capture_output=True, text=True).stdout.split()
+        if len(out) < 2:
+            return None
+        if out[1] not in ("?", "??", "-"):
+            return out[1] if out[1].startswith("/dev/") else f"/dev/{out[1]}"
+        pid = int(out[0])
+    return None
+
+
+seq = b"\033_Ga=d,d=A,q=2\033\\"
+if os.environ.get("TMUX"):
+    seq = b"\033Ptmux;" + seq.replace(b"\033", b"\033\033") + b"\033\\"
+
+tty = find_tty()
+if not tty:
+    sys.exit("hideimg: no terminal device found")
+try:
+    fd = os.open(tty, os.O_WRONLY | os.O_NOCTTY)
+    os.write(fd, seq)
+    os.close(fd)
+except OSError as e:
+    sys.exit(f"hideimg: cannot write to {tty}: {e}")
+print("Images hidden.")
