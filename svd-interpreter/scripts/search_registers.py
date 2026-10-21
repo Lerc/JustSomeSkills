@@ -12,6 +12,8 @@ from svd_parser import SVDParser
 
 
 def main():
+    output_json = '--json' in sys.argv
+    sys.argv = [a for a in sys.argv if a != '--json']
     if len(sys.argv) < 3:
         print("Usage: search_registers.py <svd_file> <pattern> [--json]")
         print("\nExample: search_registers.py device.svd ctrl")
@@ -20,7 +22,6 @@ def main():
     
     svd_file = sys.argv[1]
     pattern = sys.argv[2]
-    output_json = '--json' in sys.argv
     
     try:
         parser = SVDParser(svd_file)

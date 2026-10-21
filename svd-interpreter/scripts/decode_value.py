@@ -93,6 +93,8 @@ def find_register_by_name_or_address(parser, identifier):
 
 
 def main():
+    output_json = '--json' in sys.argv
+    sys.argv = [a for a in sys.argv if a != '--json']
     if len(sys.argv) < 4:
         print("Usage: decode_value.py <svd_file> <register> <value> [--json]")
         print("\nRegister can be specified as:")
@@ -107,7 +109,6 @@ def main():
     svd_file = sys.argv[1]
     register_id = sys.argv[2]
     value_str = sys.argv[3]
-    output_json = '--json' in sys.argv
     
     # Parse value
     try:

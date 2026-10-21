@@ -5,159 +5,50 @@ description: Interpret and analyze CMSIS SVD (System View Description) files for
 
 # SVD Interpreter
 
-Parse and extract information from CMSIS SVD (System View Description) XML files that define memory-mapped peripherals for ARM Cortex-M microcontrollers.
+Query CMSIS SVD files (the XML register maps for ARM Cortex-M parts) with the
+bundled scripts. Answer register questions from script output, not memory:
+addresses, field positions and reset values vary between parts and revisions.
 
 Resolve `<skill-dir>` as the directory containing this `SKILL.md`. Resolve
-every `scripts/...`, `assets/...`, and `references/...` path below against
-that directory regardless of the current working directory. Invoke scripts
-with their absolute resolved paths, for example:
+every `scripts/...` and `assets/...` path below against that directory
+regardless of the current working directory, and invoke scripts by their
+absolute paths:
 
 ```bash
 <skill-dir>/scripts/device_info.py /path/to/device.svd
 ```
 
-## Available Scripts
+## Choosing the SVD file
 
-All scripts support the `--json` flag for machine-readable output and
-automatically handle LZMA-compressed `.lzma` files.
+Use the SVD file the user provides; if none is available, ask for one. For
+RP2350 questions, use the bundled `<skill-dir>/assets/RP2350.svd.lzma` as is.
+Every script reads `.lzma` files directly. Its provenance, license and update
+procedure are in [rp2350-svd.md](references/rp2350-svd.md).
 
-### device_info.py
-Display device metadata and CPU configuration.
+## Scripts
 
-```bash
-scripts/device_info.py <svd_file>
-```
+All take `<svd>` first, accept hex or decimal numbers, and print JSON with
+`--json`. Use `--json` when you will process the output further.
 
-### list_peripherals.py
-List all peripherals with base addresses, grouped by category.
+| Question | Script and arguments |
+|---|---|
+| What part is this, which core? | `device_info.py <svd>` |
+| What peripherals exist, where? | `list_peripherals.py <svd>` |
+| Fields, access and reset value of a register | `find_register.py <svd> <PERIPH> <REG>` |
+| Absolute address of a peripheral or register | `calculate_address.py <svd> <PERIPH> [<REG>]` |
+| Registers whose name matches a pattern | `search_registers.py <svd> <pattern>` (case-insensitive substring) |
+| Which register is at this address? | `find_by_address.py <svd> <addr>` |
+| All registers in an address range | `find_in_range.py <svd> <start> <end>` (inclusive) |
+| What does this value mean? | `decode_value.py <svd> <PERIPH.REG or addr> <value>` |
+| Build a value from field settings | `encode_value.py <svd> <PERIPH.REG or addr> FIELD=value ... [--base=reset\|<value>]` |
 
-```bash
-scripts/list_peripherals.py <svd_file>
-```
+`encode_value.py` accepts enumerated names as field values
+(`MODE=PERIODIC`), validates them against the SVD, and with `--base=reset`
+starts from the register's reset value instead of zero.
 
-### find_register.py
-Get detailed information about a specific register including bit fields, access type, and reset value.
-
-```bash
-scripts/find_register.py <svd_file> <peripheral> <register>
-```
-
-Example: `scripts/find_register.py device.svd TIMER0 CTRL`
-
-### calculate_address.py
-Calculate absolute memory addresses for peripherals and registers.
-
-```bash
-# Show peripheral base address
-scripts/calculate_address.py <svd_file> <peripheral>
-
-# Show specific register address
-scripts/calculate_address.py <svd_file> <peripheral> <register>
-```
-
-### search_registers.py
-Search for registers matching a pattern (case-insensitive) across all peripherals.
-
-```bash
-scripts/search_registers.py <svd_file> <pattern>
-```
-
-Example: `scripts/search_registers.py device.svd ctrl` finds all registers with "ctrl" in the name.
-
-### find_by_address.py
-Reverse lookup: find which register corresponds to a specific memory address.
-
-```bash
-scripts/find_by_address.py <svd_file> <address>
-```
-
-Example: `scripts/find_by_address.py device.svd 0x40000004` shows which register is at that address.
-
-### find_in_range.py
-Find all registers within a specified address range (inclusive).
-
-```bash
-scripts/find_in_range.py <svd_file> <start_address> <end_address>
-```
-
-Example: `scripts/find_in_range.py device.svd 0x40000000 0x40001000` shows all registers in that range.
-
-### decode_value.py
-Decode a register value by breaking it down into bit fields. Shows what each field is set to, including enumerated value names.
-
-```bash
-scripts/decode_value.py <svd_file> <register> <value>
-```
-
-Register can be specified as `PERIPHERAL.REGISTER` or address. Value in hex or decimal.
-
-Example: `scripts/decode_value.py device.svd TIMER0.CTRL 0x03` breaks down value 0x03 into its bit fields.
-
-### encode_value.py
-Build a register value by specifying bit field values. Validates against enumerated values and checks for conflicts.
-
-```bash
-scripts/encode_value.py <svd_file> <register> [FIELD=value ...] [--base=value]
-```
-
-Field values can be numeric or enumerated names. Use `--base=reset` to start from reset value.
-
-Examples:
-- `scripts/encode_value.py device.svd TIMER0.CTRL ENABLE=1 MODE=PERIODIC`
-- `scripts/encode_value.py device.svd 0x40000000 ENABLE=1 MODE=0 --base=reset`
-
-## Usage Workflow
-
-When the user provides or references an SVD file:
-
-1. Resolve the requested SVD file. If it is unavailable, ask the user to
-   provide it. For RP2350 queries, use the bundled
-   `assets/RP2350.svd.lzma`; do not decompress it manually.
-2. Use appropriate script based on the query:
-   - Overview needed → `device_info.py` and `list_peripherals.py`
-   - Specific register → `find_register.py`
-   - Address calculation → `calculate_address.py`
-   - Don't know exact name → `search_registers.py` first
-   - Reverse lookup (address to register) → `find_by_address.py`
-   - Memory range analysis → `find_in_range.py`
-   - Decode register value → `decode_value.py`
-   - Build register value → `encode_value.py`
-3. Prefer `--json` when consuming output programmatically.
-4. Parse script output and present it in a clear format.
-5. Read [common_peripherals.md](references/common_peripherals.md) when
-   additional context about standard ARM peripherals would help.
-6. Read [rp2350-svd.md](references/rp2350-svd.md) for the bundled RP2350
-   file's provenance, license, and update procedure.
-
-## Typical Queries
-
-**"What peripherals are available?"**
-→ Run `list_peripherals.py`
-
-**"What are the fields in TIMER0->CTRL?"**
-→ Run `find_register.py device.svd TIMER0 CTRL`
-
-**"What's the address of UART1 RX register?"**
-→ Run `calculate_address.py device.svd UART1 RXD`
-
-**"Find all control registers"**
-→ Run `search_registers.py device.svd ctrl`
-
-**"What register is at address 0x40000004?"**
-→ Run `find_by_address.py device.svd 0x40000004`
-
-**"Show me all registers between 0x40000000 and 0x40001000"**
-→ Run `find_in_range.py device.svd 0x40000000 0x40001000`
-
-**"What does the value 0x07 mean for TIMER0.CTRL?"**
-→ Run `decode_value.py device.svd TIMER0.CTRL 0x07`
-
-**"Build a value for TIMER0.CTRL with ENABLE=1 and MODE=PERIODIC"**
-→ Run `encode_value.py device.svd TIMER0.CTRL ENABLE=1 MODE=PERIODIC`
-
-## References
-
-- [common_peripherals.md](references/common_peripherals.md) - Standard ARM
-  Cortex-M peripherals and common register patterns.
-- [rp2350-svd.md](references/rp2350-svd.md) - Bundled RP2350 SVD provenance,
-  license, and maintenance notes.
+When the exact peripheral or register name is unknown, run
+`search_registers.py` first, then `find_register.py` on the match. Core
+Cortex-M registers (SCB, NVIC, SysTick at 0xE000xxxx) are often absent from
+SVD files or grouped under a vendor name; RP2350 puts them in `PPB`. Look
+them up by address with `find_by_address.py` rather than guessing the
+peripheral name.

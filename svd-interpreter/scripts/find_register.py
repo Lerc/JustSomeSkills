@@ -31,6 +31,8 @@ def format_bit_field(field, reg_size=32):
 
 
 def main():
+    output_json = '--json' in sys.argv
+    sys.argv = [a for a in sys.argv if a != '--json']
     if len(sys.argv) < 4:
         print("Usage: find_register.py <svd_file> <peripheral> <register> [--json]")
         print("\nExample: find_register.py device.svd TIMER0 CTRL")
@@ -39,7 +41,6 @@ def main():
     svd_file = sys.argv[1]
     peripheral_name = sys.argv[2]
     register_name = sys.argv[3]
-    output_json = '--json' in sys.argv
     
     try:
         parser = SVDParser(svd_file)

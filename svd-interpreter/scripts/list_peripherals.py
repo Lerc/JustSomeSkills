@@ -13,12 +13,13 @@ from svd_parser import SVDParser
 
 
 def main():
+    output_json = '--json' in sys.argv
+    sys.argv = [a for a in sys.argv if a != '--json']
     if len(sys.argv) < 2:
         print("Usage: list_peripherals.py <svd_file> [--json]")
         sys.exit(1)
     
     svd_file = sys.argv[1]
-    output_json = '--json' in sys.argv
     
     try:
         parser = SVDParser(svd_file)

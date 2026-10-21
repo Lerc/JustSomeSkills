@@ -112,15 +112,19 @@ def main():
         print("  encode_value.py device.svd TIMER0.CTRL ENABLE=1 --base=reset")
         sys.exit(1)
     
-    svd_file = sys.argv[1]
-    register_id = sys.argv[2]
+    flags = [a for a in sys.argv[1:] if a.startswith('--')]
+    positional = [a for a in sys.argv[1:] if not a.startswith('--')]
+    if len(positional) < 2:
+        print("Usage: encode_value.py <svd_file> <register> [field=value ...] [--base=value] [--json]")
+        sys.exit(1)
+    svd_file, register_id = positional[:2]
     
     # Parse arguments
     field_assignments = {}
     base_value = 0
     output_json = False
     
-    for arg in sys.argv[3:]:
+    for arg in flags + positional[2:]:
         if arg == '--json':
             output_json = True
         elif arg.startswith('--base='):

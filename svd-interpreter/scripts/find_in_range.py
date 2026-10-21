@@ -12,6 +12,8 @@ from svd_parser import SVDParser
 
 
 def main():
+    output_json = '--json' in sys.argv
+    sys.argv = [a for a in sys.argv if a != '--json']
     if len(sys.argv) < 4:
         print("Usage: find_in_range.py <svd_file> <start_address> <end_address> [--json]")
         print("\nExamples:")
@@ -24,7 +26,6 @@ def main():
     svd_file = sys.argv[1]
     start_str = sys.argv[2]
     end_str = sys.argv[3]
-    output_json = '--json' in sys.argv
     
     # Parse addresses (handle hex or decimal)
     try:

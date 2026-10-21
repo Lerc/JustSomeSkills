@@ -12,6 +12,8 @@ from svd_parser import SVDParser
 
 
 def main():
+    output_json = '--json' in sys.argv
+    sys.argv = [a for a in sys.argv if a != '--json']
     if len(sys.argv) < 3:
         print("Usage: calculate_address.py <svd_file> <peripheral> [register] [--json]")
         print("\nExamples:")
@@ -24,7 +26,6 @@ def main():
     svd_file = sys.argv[1]
     peripheral_name = sys.argv[2]
     register_name = sys.argv[3] if len(sys.argv) > 3 and not sys.argv[3].startswith('--') else None
-    output_json = '--json' in sys.argv
     
     try:
         parser = SVDParser(svd_file)
