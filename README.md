@@ -33,23 +33,22 @@ GEAR: Q`!L6#P6R<X>^:a=]D_JfLfP\`R^Xb^_aX]R_PfLfJ\`D^>b;_?X=R6P6L<J>D:>=;D?J=3!NF
 This is for reading System View Description files.
 It includes a compressed svd file describing the hardware of the RP2350 chip
 
-#vanilla-artifact-builder
-This assists in making artifacts in multiple files and then combining them into the html file that may be viewed as an artifact.
+## vanilla-artifact-builder
+This lets you develop a page as separate HTML, CSS, JS and image files, then bundles them into one self-contained HTML file. That suits environments that can only show a single HTML file, such as claude.ai artifacts, or anyone who just wants one file.
 
-Internally it uses
-
-```project/
+```
+project/
 ├── src/              ← Everything here gets bundled
 │   ├── index.html
 │   ├── styles.css
 │   ├── script.js
-│   └── images/       
+│   └── images/
 │       └── logo.png
-├── bundle.html       ← Generated artifact
+├── project.html      ← Generated bundle (or in $VANILLA_ARTIFACT_OUTPUT_DIR)
 ├── dist/             ← Build output (temporary)
 ├── node_modules/     ← Dependencies (temporary)
 ```
-It can  handle multiple js files, and appends instructions to the end of the HTML telling claude how to deconstruct the bundled html file back into individual files.
+The bundle ends with a comment holding the compressed source files and a link back to this repo, so the bundle can be turned back into individual files. Set `VANILLA_ARTIFACT_OUTPUT_DIR` to wherever your environment picks up output files. Run `scripts/check-environment.sh` to check that an environment has what the skill needs.
 
 
 

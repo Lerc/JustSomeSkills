@@ -1,23 +1,20 @@
 #!/bin/bash
+# Create a starter project at PROJECT_DIR (any path; its name becomes the bundle name).
+#
+# Usage: init-vanilla-artifact.sh <PROJECT_DIR>
 set -e
 
-# Check if project name provided
-if [ -z "$1" ]; then
-  echo "❌ Error: No project name provided"
-  echo "Usage: bash init-vanilla-artifact.sh <project-name>"
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  echo "Usage: init-vanilla-artifact.sh <PROJECT_DIR>"
+  [ -z "$1" ] && exit 1 || exit 0
+fi
+if [ -e "$1/src" ]; then
+  echo "Error: $1/src already exists." >&2
   exit 1
 fi
 
-PROJECT_NAME="$1"
-
-echo "🚀 Initializing vanilla JavaScript artifact: $PROJECT_NAME"
-
-# Create project directory with src subdirectory
-mkdir -p "$PROJECT_NAME/src"
-mkdir -p "$PROJECT_NAME/src/images"
-cd "$PROJECT_NAME"
-
-echo "📝 Creating project files..."
+mkdir -p "$1/src/images"
+cd "$1"
 
 # Create index.html in src/
 cat > src/index.html << 'EOF'
@@ -148,52 +145,6 @@ node_modules/
 package.json
 package-lock.json
 .parcelrc
-
-# Note: bundle*.html files are NOT ignored
-# Keep versioned bundles for comparison and history
 EOF
 
-# Create README for the images folder
-cat > src/images/README.md << 'EOF'
-# Images Directory
-
-Place image files here to include them in your artifact.
-
-Supported formats:
-- PNG (.png)
-- JPEG (.jpg, .jpeg)
-- GIF (.gif)
-- SVG (.svg)
-- WebP (.webp)
-
-Images will be:
-- Automatically bundled into the artifact
-- Base64-encoded in the bundle metadata
-- Accessible via relative paths in your HTML
-
-Example usage in HTML:
-```html
-<img src="./images/logo.png" alt="Logo">
-```
-
-The bundler will handle encoding and including these images.
-EOF
-
-echo ""
-echo "✅ Project initialized successfully!"
-echo "📁 Project structure:"
-echo "   $PROJECT_NAME/"
-echo "   ├── src/"
-echo "   │   ├── index.html"
-echo "   │   ├── styles.css"
-echo "   │   ├── script.js"
-echo "   │   └── images/"
-echo "   │       └── README.md (place images here)"
-echo "   └── .gitignore"
-echo ""
-echo "Next steps:"
-echo "1. cd $PROJECT_NAME"
-echo "2. Edit files in src/ directory"
-echo "3. Add images to src/images/ if needed"
-echo "4. Run bundle script to create artifact"
-
+echo "Created $(pwd)/src (index.html, styles.css, script.js, images/)"

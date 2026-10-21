@@ -1,160 +1,85 @@
 #!/bin/bash
+# Bundle <project-dir>/src into one self-contained HTML file with embedded,
+# recoverable source metadata.
+#
+# Usage: bundle-vanilla-artifact.sh [-v VERSION] [--with-source] [PROJECT_DIR]
+#
+#   PROJECT_DIR      Directory containing src/index.html (default: current directory)
+#   -v, --version    Suffix the output name: <name>-<VERSION>.html
+#   --with-source    Also copy src/ to <output-dir>/<name>-source/
+#
+# Output goes to $VANILLA_ARTIFACT_OUTPUT_DIR when set, otherwise PROJECT_DIR.
+# The output name is the project directory's name.
 set -e
 
-# Parse version flag
 VERSION=""
-if [ "$1" = "-v" ] || [ "$1" = "--version" ]; then
-  VERSION="$2"
-  shift 2
-fi
-
-echo "📦 Bundling vanilla JS artifact with source metadata..."
-
-# Check if src directory exists
-if [ ! -d "src" ]; then
-  echo "❌ Error: No src/ directory found in current directory."
-  echo "   Run this script from your project root (the directory containing src/)."
-  exit 1
-fi
-
-# Check if index.html exists in src
-if [ ! -f "src/index.html" ]; then
-  echo "❌ Error: No index.html found in src/ directory."
-  echo "   The src/ directory must contain an index.html file."
-  exit 1
-fi
-
-# Initialize package.json if it doesn't exist
-if [ ! -f "package.json" ]; then
-  echo "📝 Creating minimal package.json..."
-  cat > package.json << 'EOF'
-{
-  "name": "vanilla-artifact",
-  "version": "1.0.0",
-  "private": true
-}
-EOF
-fi
-
-# Install bundling dependencies (only if node_modules doesn't exist)
-if [ ! -d "node_modules" ]; then
-  echo "📦 Installing bundling dependencies..."
-  npm install --save-dev parcel @parcel/config-default html-inline
-else
-  echo "✓ Dependencies already installed (skipping npm install)"
-fi
-
-# Create minimal Parcel config
-if [ ! -f ".parcelrc" ]; then
-  echo "🔧 Creating Parcel configuration..."
-  cat > .parcelrc << 'EOF'
-{
-  "extends": "@parcel/config-default"
-}
-EOF
-fi
-
-# Clean previous build
-echo "🧹 Cleaning previous build..."
-rm -rf dist .parcel-cache
-
-# Collect source files metadata from src/ directory
-echo "📋 Collecting source file metadata from src/..."
-SOURCE_MANIFEST="{"
-
-# Function to encode file content as LZMA-compressed base64
-encode_file() {
-    xz --format=lzma -c "$1" | (base64 -w 0 2>/dev/null || base64)
-}
-
-# Function to get relative path from src/
-get_relative_path() {
-    echo "$1" | sed 's|^src/||'
-}
-
-# Track files and their content from src/ directory
-first=true
-
-# Find all HTML, CSS, JS files in src/
-for file in $(find src -type f \( -name "*.html" -o -name "*.css" -o -name "*.js" \)); do
-    if [ "$first" = true ]; then
-        first=false
-    else
-        SOURCE_MANIFEST="$SOURCE_MANIFEST,"
-    fi
-    
-    # Get relative path from src/
-    rel_path=$(get_relative_path "$file")
-    
-    # Encode the file content
-    encoded_content=$(encode_file "$file")
-    
-    SOURCE_MANIFEST="$SOURCE_MANIFEST\"$rel_path\":\"$encoded_content\""
+WITH_SOURCE=false
+PROJECT_DIR="."
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -v|--version) VERSION="$2"; shift 2 ;;
+    --with-source) WITH_SOURCE=true; shift ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*) echo "Error: unknown option $1" >&2; exit 1 ;;
+    *) PROJECT_DIR="$1"; shift ;;
+  esac
 done
 
-# Find all image files in src/images/
-if [ -d "src/images" ]; then
-    for file in $(find src/images -type f \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.gif" -o -name "*.svg" -o -name "*.webp" \)); do
-        if [ "$first" = true ]; then
-            first=false
-        else
-            SOURCE_MANIFEST="$SOURCE_MANIFEST,"
-        fi
-        
-        # Get relative path from src/
-        rel_path=$(get_relative_path "$file")
-        
-        # Encode the file content
-        encoded_content=$(encode_file "$file")
-        
-        SOURCE_MANIFEST="$SOURCE_MANIFEST\"$rel_path\":\"$encoded_content\""
-    done
+SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
+NAME="$(basename "$PROJECT_DIR")"
+OUTPUT_DIR="${VANILLA_ARTIFACT_OUTPUT_DIR:-$PROJECT_DIR}"
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
+OUTPUT_FILE="$OUTPUT_DIR/$NAME${VERSION:+-$VERSION}.html"
+
+if [ ! -f "$PROJECT_DIR/src/index.html" ]; then
+  echo "Error: $PROJECT_DIR/src/index.html not found." >&2
+  echo "Pass the project directory (the one containing src/) as an argument." >&2
+  exit 1
 fi
 
-SOURCE_MANIFEST="$SOURCE_MANIFEST}"
+cd "$PROJECT_DIR"
 
-# Build with Parcel (from src/index.html)
-echo "🔨 Building with Parcel..."
-npx parcel build src/index.html --dist-dir dist --no-source-maps
-
-# Inline everything into single HTML
-echo "🎯 Inlining all assets into single HTML file..."
-npx html-inline dist/index.html > bundle.temp.html
-
-# Determine output filename
-if [ -n "$VERSION" ]; then
-  OUTPUT_FILE="bundle-${VERSION}.html"
-else
-  OUTPUT_FILE="bundle.html"
+if [ ! -f package.json ]; then
+  echo '{ "name": "vanilla-artifact", "version": "1.0.0", "private": true }' > package.json
+fi
+if [ ! -d node_modules ]; then
+  echo "Installing bundling dependencies (first run only)..."
+  npm install --save-dev --no-audit --no-fund parcel@2 @parcel/config-default@2
+fi
+if [ ! -f .parcelrc ]; then
+  echo '{ "extends": "@parcel/config-default" }' > .parcelrc
 fi
 
-# Add source metadata as a comment at the end
-echo "🔖 Embedding source metadata..."
-cat bundle.temp.html > "$OUTPUT_FILE"
-echo "" >> "$OUTPUT_FILE"
-echo "<!-- Metadata generated by the 'vanilla-artifact-builder' skill for Claude (https://github.com/Lerc/JustSomeSkills/tree/main/vanilla-artifact-builder). VANILLA-ARTIFACT-SOURCE-MAP-V1 $SOURCE_MANIFEST -->" >> "$OUTPUT_FILE"
+rm -rf dist .parcel-cache
+echo "Building with Parcel..."
+npx parcel build src/index.html --dist-dir dist --no-source-maps --public-url ./ --log-level warn
 
-rm bundle.temp.html
+# Manifest: { "relative/path": base64(lzma(content)) } for every source and image file.
+MANIFEST="$(python3 - <<'PYTHON'
+import base64, json, lzma, pathlib
+exts = {".html", ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
+src = pathlib.Path("src")
+manifest = {
+    p.relative_to(src).as_posix():
+        base64.b64encode(lzma.compress(p.read_bytes(), format=lzma.FORMAT_ALONE)).decode()
+    for p in sorted(src.rglob("*")) if p.is_file() and p.suffix.lower() in exts
+}
+print(json.dumps(manifest, separators=(",", ":")))
+PYTHON
+)"
 
-# Get file size
-FILE_SIZE=$(du -h "$OUTPUT_FILE" | cut -f1)
+{
+  python3 "$SCRIPTS/inline_html.py" dist/index.html
+  echo ""
+  echo "<!-- Metadata generated by the 'vanilla-artifact-builder' skill for Claude (https://github.com/Lerc/JustSomeSkills/tree/main/vanilla-artifact-builder). VANILLA-ARTIFACT-SOURCE-MAP-V1 $MANIFEST -->"
+} > "$OUTPUT_FILE"
 
-echo ""
-echo "✅ Bundle complete!"
-echo "📄 Output: $OUTPUT_FILE ($FILE_SIZE)"
-echo "🔖 Source metadata embedded for unbundling"
-echo ""
-if [ -n "$VERSION" ]; then
-  echo "Version: $VERSION"
-  
-  # List all bundle versions
-  if ls bundle*.html 1> /dev/null 2>&1; then
-    echo ""
-    echo "All versions:"
-    ls -lh bundle*.html | awk '{print "  " $9 " (" $5 ")"}'
-  fi
+if [ "$WITH_SOURCE" = true ]; then
+  SOURCE_COPY="$OUTPUT_DIR/$NAME-source"
+  rm -rf "$SOURCE_COPY"
+  cp -r src "$SOURCE_COPY"
+  echo "Source:  $SOURCE_COPY"
 fi
-echo ""
-echo "This single HTML file is ready to use as a Claude artifact."
-echo "Use unbundle-vanilla-artifact.sh to extract the original source files."
-
+echo "Bundle:  $OUTPUT_FILE ($(du -h "$OUTPUT_FILE" | cut -f1))"
